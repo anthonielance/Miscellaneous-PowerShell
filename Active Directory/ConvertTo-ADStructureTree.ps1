@@ -2,20 +2,23 @@
 #Requires -Module @{ModuleName='ActiveDirectory';ModuleVersion='1.0.0.0'}
 <#
 .SYNOPSIS
-Converts Active Directory structure nodes to text.
+Converts Active Directory structure ADObjects to text.
 
 .DESCRIPTION
-Converts Active Directory structure nodes to text.
+Converts Active Directory structure ADObjects to text.
 This can be used to export the directory structure to an external file.
 
-It is recommended to use the Get-ADStructure cmdlet to acquire the directory node.
+It is recommended to use the Get-ADStructure cmdlet to acquire the directory ADObject.
 
-.PARAMETER Node
-Defines the Active Directory nodes to traverse.
+.PARAMETER ADObject
+Defines the Active Directory ADObjects to traverse.
+
+.PARAMETER IncludeType
+When selected the output will include the Active Directorys object type
 
 .EXAMPLE
 PS:> $directory = Get-ADStructure
-PS:> ConvertTo-ADStructureTree -Node $directory
+PS:> ConvertTo-ADStructureTree -ADObject $directory
 
 doamin
 ├───Administration (organizationalUnit)
@@ -35,59 +38,69 @@ function ConvertTo-ADStructureTree {
   [CmdletBinding()]
   param(
     [Parameter()]
-    [PSCustomObject]$Node
+    [PSCustomObject]$ADObject,
+
+    [Parameter()]
+    [Switch]$IncludeType
   )
 
   function GetChildren {
     param(
-      [PSCustomObject]$Node,
-      [Int]$Spaces,
-      [Switch]$IsRoot
+      [PSCustomObject]$ADObject,
+      [Int]$Depth = 0,
+      [Switch]$IncludeType
     )
   
     begin {
       # Tree Characters
-      $pipe = [char]::ConvertFromUtf32(9474) # │
-      $dash = [char]::ConvertFromUtf32(9472) # ─
-      $angle = [char]::ConvertFromUtf32(9494) # └
-      $tee = [char]::ConvertFromUtf32(9500) # ├"
+      $PIPE = [char]::ConvertFromUtf32(9474) # │
+      $DASH = [char]::ConvertFromUtf32(9472) # ─
+      $ANGLE = [char]::ConvertFromUtf32(9492) # └
+      $TEE = [char]::ConvertFromUtf32(9500) # ├"
     }
   
     process {
       
-      if ($null -eq $Node -and $null -eq $Node.Children) {break}
+      if ($null -eq $ADObject -and $null -eq $ADObject.Children) {break}
 
-      for ($i = 0; $i -lt $Node.Children.Count; $i++) {
-        $connector = ""
-        if ($i -eq ($Node.Children.Count - 1)) {
-          if ($IsRoot) {
-            $connector = "$(' ' * ($Spaces-1))$angle$($dash *3)"
-          }
-          else {
-            $connector = "$pipe$(' ' * ($Spaces-1))$angle$($dash *3)"
-          }
+      for ($i = 0; $i -lt $ADObject.Children.Count; $i++) {
+        
+        $connector = "$(($PIPE + '   ') * $Depth)"
+
+        if ($i -eq ($ADObject.Children.Count - 1)) {
+          $connector += "$ANGLE$($DASH *3)"
+        } else {
+          $connector += "$TEE$($DASH *3)"
+        }
+
+        if ($IncludeType) {
+          Write-Output "$connector$($ADObject.Children[$i].Name) ($($ADObject.Children[$i].Type))"
         }
         else {
-          if ($IsRoot) {
-            $connector = "$(' ' * ($Spaces-1))$tee$($dash *3)"
-          }
-          else {
-            $connector = "$pipe$(' ' * ($Spaces-1))$tee$($dash *3)"
-          }
-        }
-
-        Write-Output "$connector$($Node.Children[$i].Name) ($($Node.Children[$i].Type))"
+          Write-Output "$connector$($ADObject.Children[$i].Name)"
+        }        
 
         $gcParams = @{
-          Node           = $Node.Children[$i]
-          Spaces         = ($Spaces + 4)
-          ConnectorColor = $ConnectorColor
-          NameColor      = $NameColor
+          ADObject = $ADObject.Children[$i]
+          Depth   = ($Depth + 1)
+        }
+        if ($IncludeType) {
+          $gcParams.Add("IncludeType", $IncludeType)
         }
         GetChildren @gcParams
       }
     }
   }
-  Write-Output "$($Node.Name) ($($Node.Type))"
-  GetChildren -IsRoot $true -Node $Node
+
+  $childParams = @{
+    ADObject = $ADObject
+  }
+  if ($IncludeType) {
+    Write-Output "$($ADObject.Name) ($($ADObject.Type))"
+    $childParams.Add("IncludeType", $IncludeType)
+  } else {
+    Write-Output "$($ADObject.Name)"
+  }
+
+  GetChildren @childParams
 }
