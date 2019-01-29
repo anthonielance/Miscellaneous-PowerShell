@@ -40,7 +40,7 @@ function Get-ADStructure {
     $Credential,
 
     [Parameter()]
-    [ValidateSet("computer", "container", "group", "user")]
+    [ValidateSet("Computer", "Container", "Group", "Person")]
     [string[]]$IncludeType
   )
 
@@ -51,7 +51,7 @@ function Get-ADStructure {
     Identity = $SearchBase
   }
   if ($Credential) { $currentObjectParams.Add("Credential", $Credential) }
-  $currentObject = Get-ADObject @currentObjectParams
+  $currentObject = Get-ADObject @currentObjectParams -Properties ObjectCategory
 
   if ($null -eq $currentObject) {break}
 
@@ -59,13 +59,13 @@ function Get-ADStructure {
   $childRawObjectParams = @{
     SearchBase  = $currentObject.DistinguishedName
     SearchScope = "OneLevel"
-    LDAPFilter  = "(|(objectClass=domainDNS)(objectClass=organizationalUnit))"
+    LDAPFilter  = "(|(objectCategory=DomainDNS)(objectCategory=OrganizationalUnit))"
   }
   if ($Credential) { $childRawObjectParams.Add("Credential", $Credential) }
   if ($IncludeType.Count -gt 0) {
-    $classes = $IncludeType | ForEach-Object {"(objectClass=$($_.ToLower()))" }
-    $filter = [String]::Join("", $classes)
-    $childRawObjectParams.LDAPFilter = "(|(objectClass=domainDNS)(objectClass=organizationalUnit)" + $filter + ")"
+    $categories = $IncludeType | ForEach-Object {"(objectCategory=$($_.ToLower()))" }
+    $filter = [String]::Join("", $categories)
+    $childRawObjectParams.LDAPFilter = "(|(objectCategory=DomainDNS)(objectCategory=OrganizationalUnit)" + $filter + ")"
   }
 
   $childRawObjects = Get-ADObject @childRawObjectParams
@@ -85,8 +85,8 @@ function Get-ADStructure {
   $Totals = [PSCustomObject]@{}
   
   $TotalOUs = (
-    ($childObjects | Where-Object Type -eq "organizationalUnit" | Measure-Object).Count +
-    ($childObjects.Children | Where-Object Type -eq "organizationalUnit" | Measure-Object).Count
+    ($childObjects | Where-Object Type -eq "OrganizationalUnit" | Measure-Object).Count +
+    ($childObjects.Children | Where-Object Type -eq "OrganizationalUnit" | Measure-Object).Count
   )
   Add-Member -InputObject $Totals -MemberType NoteProperty -Name "OrganizationalUnit" -Value $TotalOUs
   
@@ -98,7 +98,7 @@ function Get-ADStructure {
   ## Writing Active Directory statistics to pipeline
   [PSCustomObject]@{
     Name              = $currentObject.Name
-    Type              = $currentObject.ObjectClass
+    Type              = (($currentObject.ObjectCategory -replace "(CN=)(.*?),.*",'$2') -replace "-", '')
     DistinguishedName = $currentObject.DistinguishedName
     Children          = [array]$childObjects
     Totals            = $Totals
