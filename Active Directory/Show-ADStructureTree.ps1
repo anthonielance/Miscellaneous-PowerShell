@@ -2,26 +2,29 @@
 #Requires -Module @{ModuleName='ActiveDirectory';ModuleVersion='1.0.0.0'}
 <#
 .SYNOPSIS
-Display the Active Directory structure nodes on the screen.
+Display the Active Directory structure ADObjects on the screen.
 
 .DESCRIPTION
-Display Active Directory structure nodes on the screen using Write-Host.
+Display Active Directory structure ADObjects on the screen using Write-Host.
 If capture is required, use ConvertTo-ADStructure cmdlet instead.
 
-It is recommended to use the Get-ADStructure cmdlet to acquire the directory node.
+It is recommended to use the Get-ADStructure cmdlet to acquire the directory ADObject.
 
-.PARAMETER Node
-Defines the Active Directory nodes to traverse.
+.PARAMETER ADObject
+Defines the Active Directory ADObjects to traverse.
 
-.PARAMETER NodeColor
-Defines the ConsoleColor to be used for the nodes name.
+.PARAMETER NameColor
+Defines the ConsoleColor to be used for the ADObjects name.
 
 .PARAMETER ConnectorColor
-Defines the ConsoleColor to be used for the node connectors.
+Defines the ConsoleColor to be used for the ADObject connectors.
+
+.PARAMETER TypeColor
+Defines the ConsoleColor to be used for the ADObject type.
 
 .EXAMPLE
 PS:> $directory = Get-ADStructure
-PS:> ConvertTo-ADStructureTree -Node $directory
+PS:> Show-ADStructureTree -ADObject $directory
 
 doamin (domainDNS)
 ├───Administration (organizationalUnit)
@@ -40,68 +43,88 @@ function Show-ADStructureTree {
   [CmdletBinding()]
   param(
     [Parameter()]
-    [PSCustomObject]$Node,
+    [PSCustomObject]$ADObject,
 
     [Parameter()]
-    [ConsoleColor]$ConnectorColor = [ConsoleColor]::Cyan,
+    [ConsoleColor]$ConnectorColor = [ConsoleColor]::Green,
 
     [Parameter()]
-    [ConsoleColor]$NodeColor = [ConsoleColor]::Yellow
+    [ConsoleColor]$NameColor = [ConsoleColor]::Cyan,
+
+    [Parameter()]
+    [ConsoleColor]$TypeColor = [ConsoleColor]::DarkGray,
+
+    [Parameter()]
+    [Switch]$IncludeType
   )
 
-  function GetChildren {
+  function ShowChildren {
     param(
-      [PSCustomObject]$Node,
-      [Int]$Spaces,
-      [Switch]$IsRoot,
+      [PSCustomObject]$ADObject,
+      [Int]$Depth = 0,
       [ConsoleColor]$ConnectorColor,
-      [ConsoleColor]$NodeColor
+      [ConsoleColor]$NameColor,
+      [ConsoleColor]$TypeColor,
+      [Switch]$IncludeType
     )
   
-    begin {
-      # Tree Characters
-      $pipe = [char]::ConvertFromUtf32(9474) # │
-      $dash = [char]::ConvertFromUtf32(9472) # ─
-      $angle = [char]::ConvertFromUtf32(9494) # └
-      $tee = [char]::ConvertFromUtf32(9500) # ├"
-    }
+    # Tree Characters
+    $PIPE = [char]::ConvertFromUtf32(9474) # │
+    $DASH = [char]::ConvertFromUtf32(9472) # ─
+    $ANGLE = [char]::ConvertFromUtf32(9492) # └
+    $TEE = [char]::ConvertFromUtf32(9500) # ├"
   
-    process {
-        
-      if ($null -eq $Node -and $null -eq $Node.Children) {break}
-      
-      for ($i = 0; $i -lt $Node.Children.Count; $i++) {
-        $connector = ""
-        if ($i -eq ($Node.Children.Count - 1)) {
-          if ($IsRoot) {
-            $connector = "$(' ' * ($Spaces-1))$angle$($dash *3)"
-          }
-          else {
-            $connector = "$pipe$(' ' * ($Spaces-1))$angle$($dash *3)"
-          }
-        }
-        else {
-          if ($IsRoot) {
-            $connector = "$(' ' * ($Spaces-1))$tee$($dash *3)"
-          }
-          else {
-            $connector = "$pipe$(' ' * ($Spaces-1))$tee$($dash *3)"
-          }
-        }
+    if ($null -eq $ADObject -and $null -eq $ADObject.Children) {break}
 
-        Write-Host $connector -NoNewline -ForegroundColor $ConnectorColor
-        Write-Host "$($Node.Children[$i].Name) ($($Node.Children[$i].Type))" -ForegroundColor $NodeColor
+    for ($i = 0; $i -lt $ADObject.Children.Count; $i++) {
 
-        $gcParams = @{
-          Node = $Node.Children[$i]
-          Spaces = ($Spaces + 4)
-          ConnectorColor = $ConnectorColor
-          NodeColor = $NodeColor
-        }
-        GetChildren @gcParams
+      $connector = "$(($PIPE + '   ') * $Depth)"
+      if ($i -eq ($ADObject.Children.Count - 1)) {
+        $connector += "$ANGLE$($DASH *3)"
       }
+      else {
+        $connector += "$TEE$($DASH *3)"
+      }
+
+      Write-Host $connector -ForegroundColor $ConnectorColor -NoNewline
+      Write-Host "$($ADObject.Children[$i].Name)" -ForegroundColor $NameColor -NoNewline
+      Write-Host " $total" -ForegroundColor DarkGray -NoNewline
+      if ($IncludeType) {
+        Write-Host " ($($ADObject.Children[$i].Type))" -ForegroundColor $TypeColor -NoNewline
+      }
+      Write-Host ""
+
+      $gcParams = @{
+        ADObject       = $ADObject.Children[$i]
+        Depth          = ($Depth + 1)
+        ConnectorColor = $ConnectorColor
+        NameColor      = $NameColor
+      }
+        
+      if ($IncludeType) {
+        $gcParams.Add("TypeColor", $TypeColor)
+        $gcParams.Add("IncludeType", $IncludeType)
+      }
+
+      ShowChildren @gcParams
     }
+  } ## END ShowChildren
+
+  Write-Host "$($ADObject.Name)" -ForegroundColor $NameColor -NoNewline
+  if ($IncludeType) {
+    Write-Host " ($($ADObject.Type))" -ForegroundColor $TypeColor -NoNewline
   }
-  Write-Host "$($Node.Name) ($($Node.Type))" -ForegroundColor $NodeColor
-  GetChildren -IsRoot $true -Node $Node -ConnectorColor $ConnectorColor -NodeColor $NodeColor
+  Write-Host ""
+
+
+  $childParams = @{
+    ADObject       = $ADObject
+    ConnectorColor = $ConnectorColor
+    NameColor      = $NameColor
+  }
+  if ($IncludeType) {
+    $childParams.Add("TypeColor", $TypeColor)
+    $childParams.Add("IncludeType", $IncludeType)
+  }
+  ShowChildren @childParams
 }
