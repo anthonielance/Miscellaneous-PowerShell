@@ -37,52 +37,70 @@ function Get-ADStructure {
 
     [Parameter()]
     [PSCredential]
-    $Credential
+    $Credential,
+
+    [Parameter()]
+    [ValidateSet("computer", "container", "group", "user")]
+    [string[]]$IncludeType
   )
 
-  $parentRawParams = @{
+  Write-Progress -Activity "Getting AD Structure..." -Status $SearchBase
+
+  ## Getting current Active Directory object
+  $currentObjectParams = @{
     Identity = $SearchBase
   }
-  if ($Credential) { $parentRawParams.Add("Credential", $Credential) }
-  $parentRawNode = Get-ADObject @parentRawParams
+  if ($Credential) { $currentObjectParams.Add("Credential", $Credential) }
+  $currentObject = Get-ADObject @currentObjectParams
 
-  if ($null -eq $parentRawNode) {break}
+  if ($null -eq $currentObject) {break}
 
-  $childRawParams = @{
-    SearchBase  = $parentRawNode.DistinguishedName
+  ## Getting current Active Directory object children
+  $childRawObjectParams = @{
+    SearchBase  = $currentObject.DistinguishedName
     SearchScope = "OneLevel"
-    LDAPFilter  = "(|(objectClass=domainDNS)(objectClass=user)(objectClass=computer)(objectClass=group)(objectClass=container)(objectClass=organizationalUnit))"
+    LDAPFilter  = "(|(objectClass=domainDNS)(objectClass=organizationalUnit))"
   }
-  if ($Credential) { $childRawParams.Add("Credential", $Credential) }
-  $childRawNodes = Get-ADObject @childRawParams
+  if ($Credential) { $childRawObjectParams.Add("Credential", $Credential) }
+  if ($IncludeType.Count -gt 0) {
+    $classes = $IncludeType | ForEach-Object {"(objectClass=$($_.ToLower()))" }
+    $filter = [String]::Join("", $classes)
+    $childRawObjectParams.LDAPFilter = "(|(objectClass=domainDNS)(objectClass=organizationalUnit)" + $filter + ")"
+  }
 
-  $childNodes = $childRawNodes |
+  $childRawObjects = Get-ADObject @childRawObjectParams
+
+  ## Getting current Active Directory object children children
+  $childObjects = $childRawObjects |
     ForEach-Object {
-    $childParams = @{
+    $childObjectParams = @{
       SearchBase = $_.DistinguishedName
     }
-    if ($Credential) { $childParams.Add("Credential", $Credential)}
-    Get-ADStructure @childParams
+    if ($IncludeType) { $childObjectParams.Add("IncludeType", $IncludeType)}
+    if ($Credential) { $childObjectParams.Add("Credential", $Credential)}
+    Get-ADStructure @childObjectParams
   }
 
+  ## Calculating Active Directory statistics
+  $Totals = [PSCustomObject]@{}
+  
+  $TotalOUs = (
+    ($childObjects | Where-Object Type -eq "organizationalUnit" | Measure-Object).Count +
+    ($childObjects.Children | Where-Object Type -eq "organizationalUnit" | Measure-Object).Count
+  )
+  Add-Member -InputObject $Totals -MemberType NoteProperty -Name "OrganizationalUnit" -Value $TotalOUs
+  
+  foreach($type in $IncludeType) {
+    $TotalType = (($childObjects | Where-Object Type -eq $type | Measure-Object).Count + ($childObjects.Children | Where-Object Type -eq $type | Measure-Object).Count)
+    Add-Member -InputObject $Totals -MemberType NoteProperty -Name $type -Value $TotalType
+  }  
 
-  $TotalUsers      = (($childNodes | Where-Object Type -eq 'user'               | Measure-Object).Count + ($childNodes.Children | Where-Object Type -eq 'user'               | Measure-Object).Count)
-  $TotalComputers  = (($childNodes | Where-Object Type -eq 'computer'           | Measure-Object).Count + ($childNodes.Children | Where-Object Type -eq 'computer'           | Measure-Object).Count)
-  $TotalGroups     = (($childNodes | Where-Object Type -eq 'group'              | Measure-Object).Count + ($childNodes.Children | Where-Object Type -eq 'group'              | Measure-Object).Count)
-  $TotalOUs        = (($childNodes | Where-Object Type -eq 'organizationalUnit' | Measure-Object).Count + ($childNodes.Children | Where-Object Type -eq 'organizationalUnit' | Measure-Object).Count)
-  $TotalContainers = (($childNodes | Where-Object Type -eq 'container'          | Measure-Object).Count + ($childNodes.Children | Where-Object Type -eq 'container'          | Measure-Object).Count)
-
+  ## Writing Active Directory statistics to pipeline
   [PSCustomObject]@{
-    Name              = $parentRawNode.Name
-    Type              = $parentRawNode.ObjectClass
-    DistinguishedName = $parentRawNode.DistinguishedName
-    Children          = $childNodes
-    Totals            = [PSCustomObject]@{
-      Users               = $TotalUsers
-      Computers           = $TotalComputers
-      Groups              = $TotalGroups
-      OrganizationalUnits = $TotalOUs
-      Containers          = $TotalContainers 
-    }
+    Name              = $currentObject.Name
+    Type              = $currentObject.ObjectClass
+    DistinguishedName = $currentObject.DistinguishedName
+    Children          = [array]$childObjects
+    Totals            = $Totals
   }
 }
